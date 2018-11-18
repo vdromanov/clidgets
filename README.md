@@ -1,2 +1,2 @@
-# clidgets
+# CLIdgets
 A set of ncurses widgets to build a CLI app.
