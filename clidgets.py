@@ -6,31 +6,34 @@ class ProtectedInputLine(object): #A window, containing input field & left side 
 
     def __init__(self, parent_window, initial_y, initial_x, height=None, width=None, title=None, label=None):
         curses.curs_set(0)
+        self.chars_list = []
+        self.length_counter = 0
 
         self.initial_y = initial_y
         self.initial_x = initial_x
-        self.height = 10 if not height else height
-        self.width = 20 if not width else width
+        self.height = 3 if not height else height
+        self.width = 10 if not width else width
         self.title = title
         self.label = label #Information on the left of input field
 
         #Configurable params. TODO: add config parser
         self.info_width = 0 #Max length of text strings on the side of input field
         self.info_height = 0 #Height of text on the side of window (number of rows)
-        self.input_field_length = 10
+        self.input_field_length = 5
         self.allowed_chars = '0123456789'
         self.vertical_offset_before_label = 1 #Between title and label&input field
         self.hor_offset_before_input_field = 1 #Between label text & input field
-        self.enter_chars = ('KEY_ENTER', '\n')
-        self.backspace_chars = ('KEY_BACKSPACE', '\b', '\x7f')
+        self.enter_chars = ('\n', )
+        self.backspace_chars = ('\b', '\x7f')
 
         self.channel_window = parent_window.derwin(self.height, self.width, self.initial_y, self.initial_x)
+        self.show()
 
-    def set_title(self):
+    def _set_title(self):
         self.channel_window.addstr(0, 0, self.title, curses.A_BOLD)
         self.vertical_offset_before_label += 1
 
-    def set_text_info(self, contents_string, y=None, x=0):
+    def _set_label(self, contents_string, y=None, x=0):
         offsets_list = [] #A list, containing lengths of title strings
 
         if not y: #Possible to force set x & y
@@ -45,7 +48,7 @@ class ProtectedInputLine(object): #A window, containing input field & left side 
             self.info_width = max(offsets_list) #Horizontal offset before input field
             self.info_height = y - self.vertical_offset_before_label
 
-    def make_input_field(self, y=None, x=None):
+    def _make_input_field(self, y=None, x=None):
         if not y:
             y = self.vertical_offset_before_label
 
@@ -53,59 +56,63 @@ class ProtectedInputLine(object): #A window, containing input field & left side 
             x = self.info_width + self.hor_offset_before_input_field
 
         self.channel_window.addstr(y, x, ' ' * self.input_field_length, curses.A_REVERSE)
-        self.input_field_position = [y, x]
+        self.input_field_position = [y, x] #Where input field is drawn
+        self.initial_position = x #The initial cursor position in input field
 
-    def check_input_char_correctness(self, char):
+    def _check_input_char_correctness(self, char):
         return True if char in self.allowed_chars else False
 
     def get_correct_input_from_field(self): #Checks input correctness by char & prints correct chars in input field
-        chars_list = []
-        length_counter = 0
-
-        while length_counter <= self.input_field_length:
+        while self.length_counter < self.input_field_length:
             ascii_char = self.channel_window.getkey(self.input_field_position[0], self.input_field_position[1]) #Unicode number
 
             if ascii_char in self.enter_chars:
                 break #Stop interacting with input field
 
             #Delete chars from screen & values from memory
-            elif ascii_char in self.backspace_chars and length_counter > 0: #Check we aren't deleting title symbols
-                self.channel_window.delch(self.input_field_position[0], self.input_field_position[1] - 1)
+            elif ascii_char in self.backspace_chars and self.length_counter > 0: #Check we aren't deleting title symbols
+                #self.channel_window.delch(self.input_field_position[0], self.input_field_position[1] - 1)
+                self.channel_window.addch(self.input_field_position[0], self.input_field_position[1] - 1, ' ', curses.A_REVERSE)
                 self.channel_window.refresh()
                 self.input_field_position[1] -= 1
                 try:
-                    chars_list.pop() #Deleting values from memory
-                    length_counter -= 1
+                    self.chars_list.pop() #Deleting values from memory
+                    self.length_counter -= 1
                 except IndexError:
                     pass
 
-            if self.check_input_char_correctness(ascii_char):
-                self.channel_window.addch(ascii_char, curses.A_REVERSE)
-                chars_list.append(ascii_char)
+            elif self._check_input_char_correctness(ascii_char):
+                self.channel_window.addch(self.input_field_position[0], self.input_field_position[1], ascii_char, curses.A_REVERSE)
+                self.chars_list.append(ascii_char)
                 self.channel_window.refresh()
                 self.input_field_position[1] += 1 #Char position counter
-                length_counter += 1
+                self.length_counter += 1
             else:
                 curses.beep()
 
-        return ''.join(chars_list)
+        return ''.join(self.chars_list)
+
+    def clear(self):
+        self.chars_list = []
+        self.length_counter = 0
+        self._make_input_field()
 
     def get_window_object_to_force_interact_with(self):
         return self.channel_window
 
-    def get_real_dimensions(self):
+    def _get_real_dimensions(self):
         real_height = self.info_height + self.vertical_offset_before_label
-        real_width = self.info_width + self.hor_offset_before_input_field + self.input_field_length
+        real_width = self.info_width + self.hor_offset_before_input_field + self.input_field_length + 1
 
         return (real_height, real_width)
 
-    def show_window_contents(self):
+    def show(self):
         if self.title:
-            self.set_title()
+            self._set_title()
 
-        self.set_text_info(self.label)
-        self.make_input_field()
-        real_dimensions = self.get_real_dimensions()
+        self._set_label(self.label)
+        self._make_input_field()
+        real_dimensions = self._get_real_dimensions()
         self.channel_window.resize(real_dimensions[0], real_dimensions[1])
         self.channel_window.refresh()
 
@@ -260,12 +267,10 @@ if __name__ == '__main__':
         stdscr.clear()
 
         channel_1_phi = ProtectedInputLine(stdscr, initial_y, initial_x, 10, 20, 'Ch:1 PH:L1', 'Phi')
-        channel_1_phi.show_window_contents()
 
-        dimensions = channel_1_phi.get_real_dimensions()
+        dimensions = channel_1_phi._get_real_dimensions()
 
         channel_1_gain = ProtectedInputLine(stdscr, initial_y + dimensions[0], initial_x, 10, 20, label='Gain')
-        channel_1_gain.show_window_contents()
 
         stdscr.getch()
 
@@ -297,4 +302,4 @@ if __name__ == '__main__':
         stdscr.getch()
 
     
-    wrapper(test_yesno_window)
+    wrapper(test_input_string)
